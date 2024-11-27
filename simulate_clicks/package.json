@@ -1,0 +1,12 @@
+{
+  "name": "simulate-links",
+  "version": "1.0.0",
+  "description": "Simulate clicks using Puppeteer",
+  "main": "simulate-clicks.js",
+  "scripts": {
+    "start": "node simulate-clicks.js"
+  },
+  "dependencies": {
+    "puppeteer": "^20.0.0"
+  }
+}

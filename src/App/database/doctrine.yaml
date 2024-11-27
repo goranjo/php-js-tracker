@@ -1,0 +1,22 @@
+# config/doctrine.yaml
+doctrine:
+  db:
+    dbname: traffic_tracker
+    user: user
+    password: userpassword
+    host: db
+    driver: pdo_mysql
+
+  app:
+    debug: true
+    cache_dir: '%kernel.cache_dir%'
+
+  orm:
+    auto_generate_proxy_classes: true
+    mappings:
+      App:
+        is_bundle: false
+        type: attribute
+        dir: '%kernel.project_dir%/src/Models'
+        prefix: 'App\Models'
+        alias: App

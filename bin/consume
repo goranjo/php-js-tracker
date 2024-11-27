@@ -1,0 +1,26 @@
+#!/usr/bin/env php
+
+<?php
+
+$projectRoot = dirname(__DIR__);
+$vendor = $projectRoot . '/vendor/autoload.php';
+require_once $vendor;
+
+use Symfony\Component\Messenger\Worker;
+use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Component\Messenger\Transport\Receiver\ReceiverInterface;
+use App\Core\Factory\ContainerFactory;
+
+$container = ContainerFactory::create();
+
+/** @var ReceiverInterface $receiver */
+$receiver = $container->get('messenger.transport.rabbitmq');
+
+/** @var MessageBusInterface $bus */
+$bus = $container->get('messenger.bus.default');
+
+$worker = new Worker([$receiver], $bus);
+
+echo "Starting worker to process messages from RabbitMQ...\n";
+
+$worker->run();

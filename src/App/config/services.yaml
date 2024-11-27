@@ -1,0 +1,187 @@
+parameters:
+  # RabbitMQ connection string
+  messenger.transport.amqp.dsn: '%env(MESSENGER_TRANSPORT_AMQP_DSN)%'
+  query_builder_class: 'App\Entities\ElasticSearch\Services\QueryParamsBuilder'
+
+services:
+  # Serializer for Symfony Messenger
+  messenger.serializer:
+    class: Symfony\Component\Messenger\Transport\Serialization\PhpSerializer
+    public: true
+
+  # Cache Adapter for Doctrine
+  cache.adapter.filesystem:
+    class: Symfony\Component\Cache\Adapter\FilesystemAdapter
+    arguments:
+      - ''
+      - '0'
+      - '%kernel.cache_dir%'
+    shared: true
+    public: true
+
+  # Doctrine Entities Manager Configuration
+  Doctrine\ORM\EntityManager:
+    class: Doctrine\ORM\EntityManager
+    factory: [ App\DatabaseConfig\DoctrineFactory, 'create' ]
+    arguments:
+      - db:
+          dbname: 'traffic_tracker'
+          user: 'user'
+          password: 'userpassword'
+          host: 'db'
+          driver: 'pdo_mysql'
+      - '@cache.adapter.filesystem'
+      - '%kernel.debug%'
+      - '%kernel.cache_dir%'
+    public: true
+
+  Doctrine\ORM\EntityManagerInterface:
+    alias: Doctrine\ORM\EntityManager
+    public: true
+
+  # RabbitMQ Connection Setup
+  amqp.connection:
+    class: Symfony\Component\Messenger\Bridge\Amqp\Transport\Connection
+    factory: [ 'Symfony\Component\Messenger\Bridge\Amqp\Transport\Connection', 'fromDsn' ]
+    arguments:
+      - 'amqp://guest:guest@rabbitmq:5672/'
+      - exchange:
+          name: 'tracker_exchange'
+          type: 'direct'
+        queues:
+          mysql_to_elasticsearch:
+            binding_keys: [ '#' ]
+      - '@Symfony\Component\Messenger\Bridge\Amqp\Transport\AmqpFactory'
+    public: true
+
+  # RabbitMQ Transport
+  messenger.transport.mysql_to_elasticsearch:
+    class: Symfony\Component\Messenger\Bridge\Amqp\Transport\AmqpTransport
+    arguments:
+      - '@amqp.connection'
+      - '@messenger.serializer'
+    public: true
+
+  # Elasticsearch Client
+  elasticsearch.client:
+    class: Elastic\Elasticsearch\Client
+    factory: [ App\Factory\ElasticsearchClientFactory, 'create' ]
+    public: true
+
+  # Tracker Controller
+  App\Http\Controllers\TrackerController:
+    arguments:
+      $messageBus: '@messenger.bus.default'
+#      $entityManager: '@Doctrine\ORM\EntityManager'
+    public: true
+
+  App\Http\Controllers\Validators\AnalyticsValidator:
+    public: true
+
+  App\Http\Controllers\AnalyticsController:
+    arguments:
+#      $messageBus: '@messenger.bus.default'
+      $validator: '@App\Http\Controllers\Validators\AnalyticsValidator'
+      $queryBuilder: '@App\Entities\Contracts\QueryBuilderInterface'
+    public: true
+
+  App\Entities\ElasticSearch\Services\QueryParamsBuilder:
+    arguments: [ ]
+    public: true
+
+  App\Entities\Doctrine\Services\DoctrineQueryBuilder:
+    arguments:
+      $entityManager: '@Doctrine\ORM\EntityManager'
+    public: true
+
+  App\Entities\Contracts\QueryBuilderInterface:
+    alias: App\Entities\ElasticSearch\Services\QueryParamsBuilder
+    public: true
+
+  # Router
+  Symfony\Component\DependencyInjection\ContainerInterface:
+    alias: 'service_container'
+
+  App\Core\Interfaces\RouteResolverInterface:
+    alias: App\Core\RouteResolver
+
+  App\Core\RouteResolver:
+    arguments:
+      $container: '@service_container'
+
+  App\Core\Router:
+    arguments:
+      $handlerResolver: '@App\Core\Interfaces\RouteResolverInterface'
+    public: true
+    shared: true
+
+  App\Core\Middlewares\CorsMiddleware: ~
+
+  # MySQL Handler
+  App\Messages\Handlers\MySQLHandler:
+    arguments:
+      - '@Doctrine\ORM\EntityManager'
+    public: true
+
+  # Elasticsearch Handler
+  App\Messages\Handlers\ElasticsearchHandler:
+    arguments:
+      - '@elasticsearch.client'
+    public: true
+
+  # Messenger Handlers Locator
+  messenger.handlers_locator:
+    class: Symfony\Component\Messenger\Handler\HandlersLocator
+    arguments:
+      -
+        App\Messages\DTO\VisitMessage:
+          - '@App\Messages\Handlers\MySQLHandler'
+          - '@App\Messages\Handlers\ElasticsearchHandler'
+    public: true
+
+  # Messenger Senders Locator
+  messenger.senders_locator:
+    class: Symfony\Component\Messenger\Transport\Sender\SendersLocator
+    arguments:
+      # Map messages to transports
+      - App\Messages\DTO\VisitMessage: [ 'messenger.transport.rabbitmq' ]
+      - '@service_container'
+    public: true
+
+  # Middleware for sending messages
+  messenger.middleware.send_message:
+    class: Symfony\Component\Messenger\Middleware\SendMessageMiddleware
+    arguments:
+      - '@messenger.senders_locator'
+    public: true
+
+  # Middleware for handling messages
+  messenger.middleware.handle_message:
+    class: Symfony\Component\Messenger\Middleware\HandleMessageMiddleware
+    arguments:
+      - '@messenger.handlers_locator'
+    public: true
+
+  # Symfony Messenger Bus
+  messenger.bus.default:
+    class: Symfony\Component\Messenger\MessageBus
+    arguments:
+      - [
+#        '@messenger.middleware.send_message',
+        '@messenger.middleware.handle_message',
+      ]
+    public: true
+
+  messenger.transport.rabbitmq:
+    class: Symfony\Component\Messenger\Bridge\Amqp\Transport\AmqpTransport
+    arguments:
+      - '@amqp.connection'
+      - '@messenger.serializer'
+    public: true
+
+  # AMQP Factory
+  Symfony\Component\Messenger\Bridge\Amqp\Transport\AmqpFactory:
+    class: Symfony\Component\Messenger\Bridge\Amqp\Transport\AmqpFactory
+    public: true
+
+
